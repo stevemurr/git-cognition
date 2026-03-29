@@ -1,0 +1,4 @@
+git-cognition
+*.exe
+.DS_Store
+.claude/
