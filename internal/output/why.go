@@ -59,14 +59,12 @@ func RenderWhyDefault(w io.Writer, d WhyData) {
 
 	renderCodeSnippet(w, d)
 
-	text := d.Excerpt
-	if text == "" {
-		text = d.Session.Reasoning.FinalMessage
-	}
-	if text != "" {
-		for _, line := range strings.Split(text, "\n") {
+	if d.Excerpt != "" {
+		for _, line := range strings.Split(d.Excerpt, "\n") {
 			fmt.Fprintf(w, "  %s\n", Quote("\""+line))
 		}
+	} else if d.Session.Task.Prompt != "" {
+		fmt.Fprintf(w, "  %s %s\n", Label("task:"), d.Session.Task.Prompt)
 	}
 }
 

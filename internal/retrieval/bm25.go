@@ -121,6 +121,36 @@ func proseWeight(s string) float64 {
 	return 1.0
 }
 
+// BestExcerpt returns the top BM25 excerpt if it's a quality match,
+// or empty string if no excerpt is meaningfully relevant.
+func BestExcerpt(query string, document string) string {
+	results := RankExcerpts(query, document)
+	if len(results) == 0 {
+		return ""
+	}
+
+	top := results[0]
+
+	// Minimum score threshold — very low scores mean no real relevance
+	if top.Score < 0.5 {
+		return ""
+	}
+
+	// Reject if the "best" excerpt is clearly boilerplate
+	trimmed := strings.TrimSpace(top.Text)
+	if strings.HasPrefix(trimmed, "Usage:") || strings.HasPrefix(trimmed, "Run with:") ||
+		strings.HasPrefix(trimmed, "Test with:") || strings.HasPrefix(trimmed, "```") {
+		return ""
+	}
+
+	// Reject markdown table rows that leaked through
+	if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") {
+		return ""
+	}
+
+	return top.Text
+}
+
 // QueryFromFilePath generates query terms from a file path.
 func QueryFromFilePath(filePath string) string {
 	// Split on path separators and dots

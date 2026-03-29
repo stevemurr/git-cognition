@@ -69,13 +69,9 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load session %s: %w", sessionID, err)
 	}
 
-	// BM25 excerpt
+	// BM25 excerpt — only use if it's a quality match
 	query := retrieval.QueryFromFilePath(file)
-	excerpts := retrieval.RankExcerpts(query, session.Reasoning.FinalMessage)
-	excerpt := ""
-	if len(excerpts) > 0 {
-		excerpt = excerpts[0].Text
-	}
+	excerpt := retrieval.BestExcerpt(query, session.Reasoning.FinalMessage)
 
 	// Read code snippet around the target line
 	codeLines, startLine := readCodeContext(file, line, defaultContext)
