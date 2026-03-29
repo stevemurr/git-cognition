@@ -1,9 +1,0 @@
-{
-  "name": "git-cognition",
-  "version": "0.1.0",
-  "description": "Capture interactive Claude Code sessions into git-cognition session refs.",
-  "author": {
-    "name": "Steven Murr",
-    "email": "11822551+stevemurr@users.noreply.github.com"
-  }
-}
