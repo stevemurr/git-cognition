@@ -5,11 +5,14 @@ import (
 )
 
 func TestParseGitLog(t *testing.T) {
-	output := `8b2e4f3	feat: token bucket rate limiter on /auth
+	// Real git log --format="%h %s" --name-only output
+	output := `8b2e4f3 feat: token bucket rate limiter on /auth
+
 auth/middleware.py
 tests/test_auth.py
 
-a1b2c3d	fix: handle nil pointer in auth
+a1b2c3d fix: handle nil pointer in auth
+
 auth/middleware.py`
 
 	commits := parseGitLog(output)
@@ -32,6 +35,21 @@ auth/middleware.py`
 	}
 	if len(commits[1].FilesChanged) != 1 {
 		t.Errorf("commit[1].files = %d, want 1", len(commits[1].FilesChanged))
+	}
+}
+
+func TestParseGitLogNoFiles(t *testing.T) {
+	output := `abc1234 empty commit`
+
+	commits := parseGitLog(output)
+	if len(commits) != 1 {
+		t.Fatalf("got %d commits, want 1", len(commits))
+	}
+	if commits[0].SHA != "abc1234" {
+		t.Errorf("sha = %q", commits[0].SHA)
+	}
+	if commits[0].FilesChanged == nil || len(commits[0].FilesChanged) != 0 {
+		t.Errorf("files should be empty slice, got %v", commits[0].FilesChanged)
 	}
 }
 
