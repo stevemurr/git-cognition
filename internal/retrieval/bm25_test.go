@@ -34,6 +34,35 @@ All existing tests pass. I added two new tests covering the rate limit boundary 
 	}
 }
 
+func TestRankExcerptsTableDeprioritized(t *testing.T) {
+	// Real-world scenario: claude -p produces a summary with a markdown table
+	// that mentions every file. The table should not win over prose.
+	document := "All 6 phases complete. Here's a summary:\n\n" +
+		"| Phase | Commit | What |\n" +
+		"|-------|--------|------|\n" +
+		"| 1 | `d01575c` | `types.ts` (Todo interface) + `store.ts` (in-memory CRUD) |\n" +
+		"| 2 | `6747b2b` | `cli.ts` (argument parser with flags support) |\n" +
+		"| 3 | `1a567e3` | `commands.ts` + `main.ts` (add/list/complete/delete handlers) |\n" +
+		"| 4 | `0b43c6c` | `persistence.ts` (JSON file load/save wired into main) |\n" +
+		"| 5 | `cb61ead` | `.gitignore` + end-to-end verification of delete and filter |\n" +
+		"| 6 | `a8ab013` | 19 tests across store, CLI parsing, and persistence |\n\n" +
+		"Run with: `deno run --allow-read --allow-write main.ts <command>`\n" +
+		"Test with: `deno test --allow-read --allow-write`"
+
+	query := QueryFromFilePath("cli.ts")
+	results := RankExcerpts(query, document)
+
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+
+	// The top result should NOT be a table row
+	top := results[0].Text
+	if contains(top, "|") && contains(top, "Phase") {
+		t.Errorf("top excerpt should not be a table row, got: %q", top)
+	}
+}
+
 func TestRankExcerptsEmpty(t *testing.T) {
 	results := RankExcerpts("test", "")
 	if results != nil {

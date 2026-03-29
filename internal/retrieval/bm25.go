@@ -18,6 +18,7 @@ const (
 
 // RankExcerpts splits the document into sentences and scores each against
 // the query terms using BM25. Returns excerpts sorted by score descending.
+// Markdown tables, code blocks, and boilerplate lines are deprioritized.
 func RankExcerpts(query string, document string) []ScoredExcerpt {
 	queryTerms := tokenize(query)
 	if len(queryTerms) == 0 || document == "" {
@@ -72,7 +73,9 @@ func RankExcerpts(query string, document string) []ScoredExcerpt {
 			score += idf * tfNorm
 		}
 
+		// Deprioritize non-prose content
 		if score > 0 {
+			score *= proseWeight(s)
 			results = append(results, ScoredExcerpt{Text: s, Score: score})
 		}
 	}
@@ -87,6 +90,35 @@ func RankExcerpts(query string, document string) []ScoredExcerpt {
 	}
 
 	return results
+}
+
+// proseWeight returns a multiplier (0.0–1.0) that deprioritizes
+// non-prose content like tables, code blocks, and boilerplate.
+func proseWeight(s string) float64 {
+	trimmed := strings.TrimSpace(s)
+
+	// Markdown table rows
+	if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") {
+		return 0.1
+	}
+	// Table separator rows
+	if strings.Contains(trimmed, "|---") || strings.Contains(trimmed, "| ---") {
+		return 0.0
+	}
+	// Code fences
+	if strings.HasPrefix(trimmed, "```") {
+		return 0.1
+	}
+	// Bold-prefixed labels like "**Files created:**" or "**Usage:**"
+	if strings.HasPrefix(trimmed, "**") && strings.Contains(trimmed, ":**") {
+		return 0.3
+	}
+	// Lines that are just file lists or commit references
+	if strings.HasPrefix(trimmed, "- `") || strings.HasPrefix(trimmed, "* `") {
+		return 0.3
+	}
+
+	return 1.0
 }
 
 // QueryFromFilePath generates query terms from a file path.
@@ -107,16 +139,32 @@ func splitSentences(text string) []string {
 		if p == "" {
 			continue
 		}
-		// If it's a list item or short paragraph, keep as-is
-		if strings.HasPrefix(p, "- ") || strings.HasPrefix(p, "* ") || len(p) < 100 {
-			sentences = append(sentences, p)
+
+		// Split multi-line content (tables, lists) into individual lines
+		lines := strings.Split(p, "\n")
+		if len(lines) > 1 {
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					sentences = append(sentences, line)
+				}
+			}
+			continue
+		}
+
+		// Single-line paragraph
+		line := lines[0]
+
+		// If it's a list item or short, keep as-is
+		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || len(line) < 100 {
+			sentences = append(sentences, line)
 			continue
 		}
 		// Split on sentence-ending punctuation
 		var current strings.Builder
-		for i, r := range p {
+		for i, r := range line {
 			current.WriteRune(r)
-			if (r == '.' || r == '!' || r == '?') && i+1 < len(p) && p[i+1] == ' ' {
+			if (r == '.' || r == '!' || r == '?') && i+1 < len(line) && line[i+1] == ' ' {
 				s := strings.TrimSpace(current.String())
 				if s != "" {
 					sentences = append(sentences, s)
