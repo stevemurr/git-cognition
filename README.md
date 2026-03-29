@@ -4,11 +4,22 @@
 Git. It keeps per-session JSON blobs in `refs/sessions/<id>` and attaches the
 session ID to commits through Git notes in `refs/notes/sessions`.
 
+## Tooling
+
+- `make install` installs `git-session` and `git-why` wrappers under `~/.local/bin` by default
+- `make uninstall` removes those wrappers
+- `make test` runs the test suite
+- `make validate-claude-plugin` validates the repo-local Claude plugin
+- `make install-claude-plugin` installs a `claude-git-cognition` launcher under
+  `~/.local/bin` by default
+- `make uninstall-claude-plugin` removes that launcher
+
 ## Commands
 
 - `git session init`
 - `git session attach <id> [commit...]`
 - `git session claude <prompt>`
+- `git session claude-live [-- <claude args>...]`
 - `git session ls`
 - `git session show <id>`
 - `git session grep <query>`
@@ -20,6 +31,8 @@ session ID to commits through Git notes in `refs/notes/sessions`.
 - Notes: `refs/notes/sessions`
 - Session blobs: `refs/sessions/<id>`
 - Local enablement: `.git/config`
+- Pending writer state: `.git/git-cognition/pending/`
+- Interactive Claude runtime state: `.git/git-cognition/claude/`
 
 `git session init` only writes local Git config:
 
@@ -37,10 +50,16 @@ It does not modify tracked files or configure remote refspecs.
 From the repo root:
 
 ```bash
-python3 -m pip install -e .
+make install
+make validate-claude-plugin
+make install-claude-plugin
 ```
 
-That puts `git-session` and `git-why` on your `PATH`, which Git will expose as
+`make install` does not use `pip install`. It installs small wrapper scripts
+that run this repo directly via `python3`, which avoids Homebrew Python's PEP
+668 restrictions on macOS.
+
+If `~/.local/bin` is on your `PATH`, Git will expose those wrappers as
 `git session` and `git why`.
 
 ### 2. Create or enter a Git repo
@@ -78,10 +97,10 @@ git add app.py
 git commit -m "initial app"
 ```
 
-### 5. Make sure Claude Code can run in print mode
+### 5. Make sure Claude Code is installed
 
-`git session claude` wraps `claude -p --verbose --output-format stream-json`.
-Before using it, confirm the `claude` CLI is installed and authenticated.
+Before using either Claude integration, confirm the `claude` CLI is installed
+and authenticated.
 
 Typical checks:
 
@@ -92,7 +111,55 @@ claude --help
 
 If Claude is not authenticated yet, complete login in the Claude CLI first.
 
-### 6. Run Claude through the wrapper
+### 6. Run Claude interactively with session capture
+
+Launch Claude with the repo-local `git-cognition` plugin loaded:
+
+```bash
+git session claude-live -- --model claude-sonnet-4-6
+```
+
+That runs:
+
+```bash
+claude --plugin-dir <repo>/claude-plugin --model claude-sonnet-4-6
+```
+
+If you installed the launcher with `make install-claude-plugin`, you can also
+run:
+
+```bash
+claude-git-cognition --model claude-sonnet-4-6
+```
+
+That launcher is just a convenience wrapper around Claude's documented
+`--plugin-dir` mechanism. It does not register a marketplace plugin in
+`~/.claude/plugins`.
+
+Inside the interactive Claude session:
+
+- ask Claude to edit code
+- ask Claude to commit before exiting if you want automatic commit attachment
+- exit Claude normally
+
+The plugin records:
+
+- the first prompt plus later follow-up prompts
+- tool calls from `PostToolUse`
+- new commits created between `SessionStart` and `SessionEnd`/`Stop`
+
+Then inspect the result:
+
+```bash
+git session ls
+git session show <session-id-prefix>
+git session grep "rate limit"
+git why app.py:2
+```
+
+### 7. Run Claude through the one-shot wrapper
+
+`git session claude` still wraps `claude -p --verbose --output-format stream-json`.
 
 Ask Claude to both edit code and commit it during the wrapped run:
 
@@ -113,7 +180,7 @@ What the wrapper does:
 If no new commit is created during the wrapped run, the session is still stored,
 but `git why` will not have a commit note to follow until you attach one later.
 
-### 7. Inspect the recorded session
+### 8. Inspect the recorded session
 
 ```bash
 git session ls
@@ -126,10 +193,11 @@ git why app.py:2 --json
 If `git why` finds a session note on the blamed commit, it will return the
 recorded session context. If not, it falls back to plain `git blame`.
 
-### 8. Attach a session later if needed
+### 9. Attach a session later if needed
 
-If Claude changed files but did not commit during the wrapped run, you can
-commit afterward and attach the stored session manually:
+If Claude changed files but did not commit until after the interactive or
+wrapped Claude run ended, commit afterward and attach the stored session
+manually:
 
 ```bash
 git add app.py
@@ -137,50 +205,26 @@ git commit -m "feat: add rate limiting"
 git session attach <session-id-prefix> HEAD
 ```
 
-## Claude Code Status
-
-The repo now includes an automatic wrapper for one-shot Claude runs:
-
-```bash
-git session claude "<prompt>"
-```
-
-What exists now:
-
-- a `git session claude` wrapper around `claude -p`
-- a write-side adapter class for Claude-shaped responses
-- explicit lifecycle methods: `start_session()`, `attach_commit()`,
-  `finalize_session()`, `abort_session()`
-- pending session state under `.git/git-cognition/pending/`
-- automatic attachment of commits created during the wrapped Claude run
-
-What does not exist yet:
-
-- automatic capture of a live interactive Claude TUI session
-- automatic background attachment to commits made after the wrapped run exits
-- a first-class Claude plugin; the current integration is a wrapper command plus
-  library adapter
-
-Today, the supported automatic path is the non-interactive wrapper. The adapter
-API still exists for deeper integrations.
-
 ## Claude Code Flow
 
-If your goal is "run Claude Code, make a commit, then inspect it", the current
-flow is:
+If your goal is "run Claude Code, make a commit, then inspect it", there are
+two supported paths:
 
 1. Install `git-cognition` and run `git session init` in the target repo.
 2. Make sure the `claude` CLI is installed and authenticated.
-3. Run `git session claude "<prompt>"` and tell Claude to commit during that run.
-4. The wrapper records the Claude event stream and auto-attaches any new commits
-   created during the run.
-5. Inspect the result with:
+3. Interactive:
+   `git session claude-live -- --model claude-sonnet-4-6`
+4. Non-interactive:
+   `git session claude "<prompt>"`
+5. Tell Claude to commit before the session exits if you want automatic commit
+   attachment.
+6. Inspect the result with:
    `git session ls`, `git session show <id>`, and `git why <file>:<line>`.
-6. If no commit happened during the wrapped run, commit normally and then attach
-   the session with `git session attach <id> HEAD`.
+7. If no commit happened until after Claude exited, commit normally and then
+   attach the session with `git session attach <id> HEAD`.
 
-In other words: the turnkey path is available for non-interactive `claude -p`
-runs, while the adapter remains available for custom integrations.
+The interactive path uses a repo-local Claude plugin loaded through
+`--plugin-dir`. The one-shot path uses the existing `claude -p` stream parser.
 
 ## Adapter API
 
@@ -210,12 +254,13 @@ writer.finalize_session()
 
 Pending write state is stored under `.git/git-cognition/pending/` so an
 integration can recover or clean up interrupted runs without touching the work
-tree.
+tree. Interactive Claude runtime state lives under `.git/git-cognition/claude/`
+until the session finalizes.
 
 ## Development
 
 Run the test suite with:
 
 ```bash
-python3 -m unittest discover -s tests -p 'test*.py' -v
+make test
 ```

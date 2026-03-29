@@ -62,6 +62,15 @@ def truncate_display(value: str, limit: int = 54) -> str:
     return f"{value[: limit - 3]}..."
 
 
+def session_prompt_lines(session: Session) -> list[str]:
+    lines = []
+    if session.task.prompt:
+        lines.append(f"task:    {session.task.prompt}")
+    for index, prompt in enumerate(session.task.follow_up_prompts, start=1):
+        lines.append(f"prompt {index + 1}: {prompt}")
+    return lines
+
+
 def session_changed_files(repo: str, session: Session) -> list[str]:
     files: list[str] = []
     seen: set[str] = set()

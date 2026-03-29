@@ -210,6 +210,8 @@ def run(args) -> int:
 
     if transcript.model:
         writer.session.agent.model = transcript.model
+    if transcript.session_id:
+        writer.set_external_session_id(transcript.session_id)
     if transcript.usage or transcript.total_cost_usd or transcript.duration_seconds:
         metrics = _usage_to_metrics(transcript.usage)
         writer.record_metrics(

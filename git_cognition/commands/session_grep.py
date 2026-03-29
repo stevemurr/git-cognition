@@ -26,8 +26,14 @@ def scoped_entries(session, scope: str):
         yield {
             "scope": "tasks",
             "label": "task",
-            "text": session.task.prompt,
+            "text": session.task.search_text(),
         }
+        if session.agent.external_session_id:
+            yield {
+                "scope": "tasks",
+                "label": "claude session",
+                "text": session.agent.external_session_id,
+            }
     if scope in {"tools", "all"}:
         for call in session.tool_calls:
             yield {

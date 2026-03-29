@@ -4,7 +4,13 @@ from pathlib import Path
 
 from git_cognition.storage import read_session, resolve_session_id
 
-from .common import format_currency, json_dump, session_commit_details, session_changed_files
+from .common import (
+    format_currency,
+    json_dump,
+    session_commit_details,
+    session_changed_files,
+    session_prompt_lines,
+)
 
 
 def run(args) -> int:
@@ -31,7 +37,10 @@ def run(args) -> int:
         f"{session.metrics.duration_seconds:.0f}s  ·  {format_currency(session.metrics.cost_usd)}"
     )
     print()
-    print(f"task:    {session.task.prompt}")
+    for line in session_prompt_lines(session):
+        print(line)
+    if session.agent.external_session_id:
+        print(f"claude:  {session.agent.external_session_id}")
     print()
     print("commits:")
     for detail in commit_details:

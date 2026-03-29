@@ -5,6 +5,7 @@ import argparse
 from git_cognition.commands import (
     session_attach,
     session_claude,
+    session_claude_live,
     session_grep,
     session_init,
     session_ls,
@@ -81,6 +82,14 @@ def build_session_parser() -> argparse.ArgumentParser:
     claude_parser.add_argument("--claude-bin")
     claude_parser.add_argument("--json", action="store_true")
     claude_parser.set_defaults(func=session_claude.run)
+
+    claude_live_parser = subparsers.add_parser(
+        "claude-live",
+        help="run interactive Claude Code with the repo-local git-cognition plugin",
+    )
+    claude_live_parser.add_argument("--claude-bin")
+    claude_live_parser.add_argument("claude_args", nargs=argparse.REMAINDER)
+    claude_live_parser.set_defaults(func=session_claude_live.run)
 
     return parser
 

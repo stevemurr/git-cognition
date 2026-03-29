@@ -124,6 +124,8 @@ class ClaudeCodeSessionWriter(AgentSessionWriter):
     @staticmethod
     def _infer_kind(tool_name: str) -> str:
         name = tool_name.lower()
+        if "bash" in name or "shell" in name or "command" in name:
+            return "run"
         if "read" in name or "open" in name or "show" in name:
             return "read"
         if "edit" in name or "write" in name or "patch" in name:

@@ -38,10 +38,12 @@ def run(args) -> int:
                 "session_id": session.session_id,
                 "date": session.completed_at,
                 "model": session.agent.model,
+                "external_session_id": session.agent.external_session_id,
                 "file_count": len(changed_files),
                 "files": changed_files,
                 "cost_usd": session.metrics.cost_usd,
                 "task_prompt": session.task.prompt,
+                "follow_up_prompts": list(session.task.follow_up_prompts),
                 "commit_count": len(session.commits),
             }
         )

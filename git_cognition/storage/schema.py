@@ -8,12 +8,15 @@ from typing import Any
 
 SCHEMA_VERSION = "1.0"
 
-MAX_PROMPT_CHARS = 4_000
+TRUNCATION_SUFFIX = "...[truncated]"
+MAX_PROMPT_CHARS = 16_000
+MAX_FOLLOW_UP_PROMPT_CHARS = 8_000
+MAX_FOLLOW_UP_PROMPTS = 25
 MAX_SUMMARY_CHARS = 600
 MAX_REASON_CHARS = 1_200
-MAX_TEXT_EXCERPT_CHARS = 4_000
-MAX_OUTPUT_SNAPSHOT_CHARS = 20_000
-MAX_JSON_CHARS = 4_000
+MAX_TEXT_EXCERPT_CHARS = 16_000
+MAX_OUTPUT_SNAPSHOT_CHARS = 64_000
+MAX_JSON_CHARS = 16_000
 MAX_PATHS = 64
 MAX_CONTEXT_FILES = 128
 
@@ -31,9 +34,9 @@ def truncate_text(value: str | None, limit: int) -> str | None:
         return None
     if len(value) <= limit:
         return value
-    if limit <= 16:
+    if limit <= len(TRUNCATION_SUFFIX):
         return value[:limit]
-    return f"{value[: limit - 15]}... [truncated]"
+    return f"{value[: limit - len(TRUNCATION_SUFFIX)]}{TRUNCATION_SUFFIX}"
 
 
 def sanitize_json_value(value: Any, limit: int = MAX_JSON_CHARS) -> Any:
@@ -73,6 +76,7 @@ class AgentInfo:
     runner: str
     model: str
     model_version: str | None = None
+    external_session_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -81,6 +85,8 @@ class AgentInfo:
         }
         if self.model_version:
             data["model_version"] = self.model_version
+        if self.external_session_id:
+            data["external_session_id"] = self.external_session_id
         return data
 
     @classmethod
@@ -89,6 +95,7 @@ class AgentInfo:
             runner=str(data.get("runner", "")),
             model=str(data.get("model", "")),
             model_version=data.get("model_version"),
+            external_session_id=data.get("external_session_id"),
         )
 
 
@@ -96,15 +103,23 @@ class AgentInfo:
 class TaskInfo:
     prompt: str
     context_files: list[str] = field(default_factory=list)
+    follow_up_prompts: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.prompt = truncate_text(str(self.prompt), MAX_PROMPT_CHARS) or ""
         self.context_files = normalize_paths(self.context_files[:MAX_CONTEXT_FILES])
+        cleaned_follow_ups: list[str] = []
+        for prompt in self.follow_up_prompts[:MAX_FOLLOW_UP_PROMPTS]:
+            truncated = truncate_text(str(prompt), MAX_FOLLOW_UP_PROMPT_CHARS) or ""
+            if truncated:
+                cleaned_follow_ups.append(truncated)
+        self.follow_up_prompts = cleaned_follow_ups
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "prompt": self.prompt,
             "context_files": self.context_files,
+            "follow_up_prompts": list(self.follow_up_prompts),
         }
 
     @classmethod
@@ -112,7 +127,23 @@ class TaskInfo:
         return cls(
             prompt=str(data.get("prompt", "")),
             context_files=list(data.get("context_files", [])),
+            follow_up_prompts=list(data.get("follow_up_prompts", [])),
         )
+
+    def add_follow_up_prompt(self, prompt: str) -> None:
+        if len(self.follow_up_prompts) >= MAX_FOLLOW_UP_PROMPTS:
+            return
+        truncated = truncate_text(str(prompt), MAX_FOLLOW_UP_PROMPT_CHARS) or ""
+        if truncated:
+            self.follow_up_prompts.append(truncated)
+
+    def all_prompts(self) -> list[str]:
+        prompts = [self.prompt] if self.prompt else []
+        prompts.extend(self.follow_up_prompts)
+        return prompts
+
+    def search_text(self) -> str:
+        return "\n".join(prompt for prompt in self.all_prompts() if prompt)
 
 
 @dataclass(slots=True)
@@ -316,4 +347,3 @@ class Session:
         except (TypeError, ValueError) as exc:
             raise SchemaError(f"invalid session payload: {exc}") from exc
         return session
-

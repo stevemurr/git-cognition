@@ -12,7 +12,7 @@ from git_cognition.storage import (
     read_session_for_commit,
 )
 
-from .common import format_currency, json_dump
+from .common import format_currency, json_dump, session_prompt_lines
 
 
 @dataclass(slots=True)
@@ -83,7 +83,10 @@ def rank_evidence(session, file_path: str, line_number: int, query_text: str) ->
 
 def render_default(commit_sha: str, file_path: str, line_number: int, session, ranked: list[Evidence]) -> None:
     print(f"{commit_sha[:7]}  {file_path}:{line_number}")
-    print(f"task:    {session.task.prompt}")
+    for line in session_prompt_lines(session):
+        print(line)
+    if session.agent.external_session_id:
+        print(f"claude:  {session.agent.external_session_id}")
     if ranked:
         top = ranked[0]
         print(f"why:     {top.body}")
@@ -97,8 +100,11 @@ def render_verbose(commit_sha: str, file_path: str, line_number: int, session_id
         f"{session.agent.model}  ·  {(session.completed_at or session.created_at)[:10]}"
     )
     print(f"session: {session_id[:8]}")
+    if session.agent.external_session_id:
+        print(f"claude:  {session.agent.external_session_id}")
     print()
-    print(f"task:    {session.task.prompt}")
+    for line in session_prompt_lines(session):
+        print(line)
     print()
     if full:
         print(f"tool call sequence ({len(session.tool_calls)} total):")
@@ -151,6 +157,7 @@ def run(args) -> int:
                     "file": file_path,
                     "line": line_number,
                     "session_id": session_id,
+                    "external_session_id": session.agent.external_session_id,
                     "session": session.to_dict(),
                     "retrieval": {
                         "method": "path-filtered-bm25",

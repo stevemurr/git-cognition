@@ -13,6 +13,13 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from git_cognition.claude_plugin import (
+    finalize_claude_session,
+    handle_post_tool_use,
+    handle_session_start,
+    handle_user_prompt_submit,
+    load_runtime_state,
+)
 from git_cognition.cli import session_main, why_main
 from git_cognition.storage.git_notes import (
     CONFIG_ENABLED_KEY,
@@ -100,6 +107,8 @@ class GitRepoTestCase(unittest.TestCase):
             capture_thinking=False,
         )
         writer.start_session()
+        writer.set_external_session_id("claude-live-session-123")
+        writer.record_user_prompt("Also rename the helper once the main flow works")
         writer.record_tool_call(
             tool="read_file",
             kind="read",
@@ -218,19 +227,24 @@ class CommandTests(GitRepoTestCase):
             ls_output = capture_output(session_main, ["ls", "--file", "app.py"])
             show_output = capture_output(session_main, ["show", session_id[:8]])
             grep_output = capture_output(session_main, ["grep", "other.py"])
+            grep_follow_up = capture_output(session_main, ["grep", "rename the helper"])
             stat_output = capture_output(session_main, ["stat"])
             why_json = capture_output(why_main, ["app.py:2", "--json"])
             why_fallback = capture_output(why_main, ["app.py:1"])
 
         self.assertIn(session_id[:8], ls_output)
         self.assertIn("Add rate limiting to the greeting path", show_output)
+        self.assertIn("Also rename the helper once the main flow works", show_output)
+        self.assertIn("claude-live-session-123", show_output)
         self.assertIn("feat: add greeting rate limiting", show_output)
         self.assertIn('searching: "other.py"  scope: all', grep_output)
+        self.assertIn("rename the helper", grep_follow_up)
         self.assertIn("claude-sonnet-4-6", stat_output)
         self.assertIn("app.py", stat_output)
 
         why_payload = json.loads(why_json)
         self.assertEqual(why_payload["commit"], ai_commit)
+        self.assertEqual(why_payload["external_session_id"], "claude-live-session-123")
         self.assertEqual(why_payload["retrieval"]["top_matches"][0]["sequence"], 2)
 
         expected_blame = self.git("blame", "-L", "1,1", "--", "app.py")
@@ -371,6 +385,213 @@ for event in events:
         why_payload = json.loads(why_json)
         self.assertEqual(why_payload["commit"], wrapper_payload["attached_commits"][0])
         self.assertEqual(why_payload["retrieval"]["top_matches"][0]["sequence"], 2)
+
+    def test_interactive_claude_hooks_finalize_session_and_attach_commit(self) -> None:
+        self.write_file(
+            "app.py",
+            'def greet(name):\n    return f"hello {name}"\n',
+        )
+        self.commit_all("initial app")
+
+        with pushd(self.repo):
+            capture_output(session_main, ["init"])
+
+        base_payload = {
+            "session_id": "claude-interactive-123",
+            "cwd": str(self.repo),
+            "transcript_path": "/tmp/claude-session.jsonl",
+        }
+        handle_session_start(base_payload)
+        self.assertIsNotNone(load_runtime_state(self.repo, "claude-interactive-123"))
+
+        handle_user_prompt_submit(
+            {
+                **base_payload,
+                "user_prompt": "Update app.py to call rate_limit(name) and commit it",
+            }
+        )
+        handle_post_tool_use(
+            {
+                **base_payload,
+                "tool_name": "Read",
+                "tool_input": {"path": "app.py"},
+                "tool_result": "Found greet() in app.py",
+            }
+        )
+        handle_user_prompt_submit(
+            {
+                **base_payload,
+                "user_prompt": "Also rename the helper to rate_limit",
+            }
+        )
+        handle_post_tool_use(
+            {
+                **base_payload,
+                "tool_name": "Edit",
+                "tool_input": {
+                    "path": "app.py",
+                    "new_string": "return rate_limit(name)",
+                },
+                "tool_result": "Updated app.py successfully",
+            }
+        )
+
+        self.write_file(
+            "app.py",
+            "def greet(name):\n    return rate_limit(name)\n",
+        )
+        ai_commit = self.commit_all("feat: interactive change")
+
+        finalize_claude_session(base_payload)
+        finalize_claude_session(base_payload)
+
+        session_id, session = read_session_for_commit(self.repo, ai_commit)
+        self.assertTrue(session_id)
+        self.assertEqual(session.agent.external_session_id, "claude-interactive-123")
+        self.assertEqual(session.task.prompt, "Update app.py to call rate_limit(name) and commit it")
+        self.assertEqual(session.task.follow_up_prompts, ["Also rename the helper to rate_limit"])
+        self.assertEqual(len(session.tool_calls), 2)
+        self.assertIsNone(load_runtime_state(self.repo, "claude-interactive-123"))
+
+    def test_session_claude_live_passes_repo_plugin_dir(self) -> None:
+        plugin_manifest = self.repo / "claude-plugin" / ".claude-plugin"
+        plugin_manifest.mkdir(parents=True, exist_ok=True)
+        (plugin_manifest / "plugin.json").write_text('{"name":"git-cognition"}\n', encoding="utf-8")
+        fake_claude = self.make_fake_claude(
+            """#!/usr/bin/env python3
+import json
+from pathlib import Path
+import sys
+
+repo = Path.cwd()
+(repo / "claude_args.json").write_text(json.dumps(sys.argv[1:]), encoding="utf-8")
+"""
+        )
+
+        with pushd(self.repo):
+            capture_output(
+                session_main,
+                [
+                    "claude-live",
+                    "--claude-bin",
+                    str(fake_claude),
+                    "--",
+                    "--model",
+                    "claude-sonnet-4-6",
+                ],
+            )
+
+        argv = json.loads((self.repo / "claude_args.json").read_text(encoding="utf-8"))
+        self.assertIn("--plugin-dir", argv)
+        plugin_index = argv.index("--plugin-dir")
+        self.assertEqual(
+            Path(argv[plugin_index + 1]).resolve(),
+            (self.repo / "claude-plugin").resolve(),
+        )
+        self.assertEqual(argv[-2:], ["--model", "claude-sonnet-4-6"])
+
+    def test_make_install_claude_plugin_installs_wrapper(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as install_root_text:
+            install_root = Path(install_root_text)
+            fake_claude = install_root / "fake_claude.py"
+            fake_claude.write_text(
+                """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+target = Path(os.environ["CLAUDE_ARGS_FILE"])
+target.write_text(json.dumps(sys.argv[1:]), encoding="utf-8")
+""",
+                encoding="utf-8",
+            )
+            fake_claude.chmod(0o755)
+            args_file = install_root / "claude_args.json"
+
+            subprocess.run(
+                ["make", "install-claude-plugin", f"PREFIX={install_root}"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            launcher = install_root / "bin" / "claude-git-cognition"
+            self.assertTrue(launcher.exists())
+
+            env = os.environ.copy()
+            env["GIT_COGNITION_CLAUDE_BIN"] = str(fake_claude)
+            env["CLAUDE_ARGS_FILE"] = str(args_file)
+            subprocess.run(
+                [str(launcher), "--model", "claude-sonnet-4-6"],
+                cwd=project_root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            argv = json.loads(args_file.read_text(encoding="utf-8"))
+            self.assertEqual(argv[0], "--plugin-dir")
+            self.assertEqual(Path(argv[1]).resolve(), (project_root / "claude-plugin").resolve())
+            self.assertEqual(argv[-2:], ["--model", "claude-sonnet-4-6"])
+
+            subprocess.run(
+                ["make", "uninstall-claude-plugin", f"PREFIX={install_root}"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertFalse(launcher.exists())
+
+    def test_make_install_installs_cli_wrappers(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as install_root_text:
+            install_root = Path(install_root_text)
+
+            subprocess.run(
+                ["make", "install", f"PREFIX={install_root}"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            session_bin = install_root / "bin" / "git-session"
+            why_bin = install_root / "bin" / "git-why"
+            self.assertTrue(session_bin.exists())
+            self.assertTrue(why_bin.exists())
+
+            session_help = subprocess.run(
+                [str(session_bin), "--help"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            why_help = subprocess.run(
+                [str(why_bin), "--help"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            self.assertIn("git-cognition session", session_help.stdout)
+            self.assertIn("git-cognition why", why_help.stdout)
+
+            subprocess.run(
+                ["make", "uninstall", f"PREFIX={install_root}"],
+                cwd=project_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertFalse(session_bin.exists())
+            self.assertFalse(why_bin.exists())
 
     def test_session_attach_adds_commit_note_after_the_fact(self) -> None:
         self.write_file("late.py", "print('late')\n")

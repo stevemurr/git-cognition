@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from git_cognition.storage.git_notes import attach_session_to_commit, git_dir, run_git, write_session
-from git_cognition.storage.schema import AgentInfo, Metrics, RejectedApproach, Session, TaskInfo, ToolCall
+from git_cognition.storage.schema import (
+    AgentInfo,
+    Metrics,
+    RejectedApproach,
+    Session,
+    TaskInfo,
+    ToolCall,
+)
 
 
 class AgentSessionWriter:
@@ -37,9 +45,27 @@ class AgentSessionWriter:
     def pending_path(self) -> Path:
         return git_dir(self.repo) / "git-cognition" / "pending" / f"{self.session_id}.json"
 
+    @classmethod
+    def pending_path_for(cls, repo: str | Path, session_id: str) -> Path:
+        return git_dir(repo) / "git-cognition" / "pending" / f"{session_id}.json"
+
+    @classmethod
+    def load_pending(cls, repo: str | Path, session_id: str) -> "AgentSessionWriter":
+        pending_path = cls.pending_path_for(repo, session_id)
+        payload = json.loads(pending_path.read_text(encoding="utf-8"))
+        writer = cls.__new__(cls)
+        writer.repo = Path(repo).resolve()
+        writer.capture_thinking = bool(payload.get("thinking_blocks"))
+        writer.session = Session.from_dict(payload)
+        writer._started = True
+        writer._finished = False
+        return writer
+
     def start_session(self) -> str:
         if self._finished:
             raise RuntimeError("session already finalized")
+        if self._started:
+            return self.session_id
         self._started = True
         self._persist_pending_state()
         return self.session_id
@@ -52,7 +78,7 @@ class AgentSessionWriter:
         pending_path = self.pending_path
         pending_path.parent.mkdir(parents=True, exist_ok=True)
         pending_path.write_text(
-            __import__("json").dumps(self.session.to_dict(), indent=2, sort_keys=True),
+            json.dumps(self.session.to_dict(), indent=2, sort_keys=True),
             encoding="utf-8",
         )
 
@@ -139,6 +165,20 @@ class AgentSessionWriter:
     def record_rejected(self, what: str, why: str) -> None:
         self._ensure_started()
         self.session.rejected_approaches.append(RejectedApproach(what=what, why=why))
+        self._persist_pending_state()
+
+    def record_user_prompt(self, text: str) -> None:
+        self._ensure_started()
+        if not self.session.task.prompt:
+            self.session.task.prompt = TaskInfo(prompt=text).prompt
+        else:
+            self.session.task.add_follow_up_prompt(text)
+        self._persist_pending_state()
+
+    def set_external_session_id(self, value: str | None) -> None:
+        self._ensure_started()
+        cleaned = str(value).strip() if value is not None else ""
+        self.session.agent.external_session_id = cleaned or None
         self._persist_pending_state()
 
     def record_metrics(
