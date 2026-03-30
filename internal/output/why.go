@@ -61,7 +61,7 @@ func RenderWhyDefault(w io.Writer, d WhyData) {
 
 	if d.Excerpt != "" {
 		for _, line := range strings.Split(d.Excerpt, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+line))
+			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
 		}
 	} else if d.Session.Task.Prompt != "" {
 		fmt.Fprintf(w, "  %s %s\n", Label("task:"), d.Session.Task.Prompt)
@@ -84,7 +84,7 @@ func RenderWhyVerbose(w io.Writer, d WhyData) {
 	fmt.Fprintln(w, Header("claude's reasoning:"))
 	if d.Session.Reasoning.FinalMessage != "" {
 		for _, line := range strings.Split(d.Session.Reasoning.FinalMessage, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+line))
+			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
 		}
 	}
 	fmt.Fprintln(w)

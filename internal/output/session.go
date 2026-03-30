@@ -60,7 +60,7 @@ func RenderSessionShow(w io.Writer, s *storage.Session) {
 	if s.Reasoning.FinalMessage != "" {
 		fmt.Fprintln(w, Header("claude's reasoning:"))
 		for _, line := range strings.Split(s.Reasoning.FinalMessage, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+line))
+			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
 		}
 		fmt.Fprintln(w)
 	}
@@ -146,7 +146,7 @@ func RenderSessionGrep(w io.Writer, query string, results []GrepResult) {
 			DateDim(r.Session.CreatedAt.Format("2006-01-02")),
 			r.Session.Task.Prompt)
 		for _, m := range r.Matches {
-			fmt.Fprintf(w, "  %s\n", HighlightMatch(m, query))
+			fmt.Fprintf(w, "  %s\n", HighlightMatch(RenderMarkdown(m), query))
 		}
 		fmt.Fprintln(w)
 	}
