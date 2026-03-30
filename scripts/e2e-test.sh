@@ -2,8 +2,11 @@
 set -euo pipefail
 
 # E2E test for git-cognition
-# Creates a temp project, runs Claude to build it, then queries every file with git why
+# Runs 6 separate claude -p sessions (simulating interactive mode),
+# each producing its own commit and session with distinct reasoning.
+# Then queries every file with git why to verify per-file context.
 
+ALLOWED="Edit,Write,Bash,Read"
 TEST_DIR=$(mktemp -d)
 echo "=== test directory: $TEST_DIR ==="
 
@@ -21,11 +24,39 @@ echo "=== Step 1: git-cognition init --repo ==="
 git-cognition init --repo
 git commit --allow-empty -m "initial"
 
-# 2. Run Claude to build a project
+# 2. Run 6 separate claude -p sessions, one per phase
 echo ""
-echo "=== Step 2: Running Claude to build a Deno todo app ==="
-claude -p "Build a Deno todo CLI app in 6 phases. After each phase, commit your changes with a descriptive message. Phase 1: types and basic store. Phase 2: CLI argument parsing. Phase 3: add/list/complete commands. Phase 4: file persistence. Phase 5: delete and filter commands. Phase 6: tests." \
-    --allowedTools "Edit,Write,Bash,Read"
+echo "=== Step 2: Building Deno todo app in 6 phases (separate sessions) ==="
+
+echo ""
+echo "--- Phase 1: Types and store ---"
+claude -p "Create a Deno todo CLI app. Start with Phase 1: Create types.ts with a Todo interface (id, title, completed, createdAt) and store.ts with an in-memory TodoStore class that has add, getById, list, complete, and delete methods. Commit your changes." \
+    --allowedTools "$ALLOWED"
+
+echo ""
+echo "--- Phase 2: CLI parsing ---"
+claude -p "Phase 2 of the Deno todo app: Add cli.ts with an argument parser that extracts a command name, positional args, and --flag options. Include a printUsage/help function. Commit your changes." \
+    --allowedTools "$ALLOWED"
+
+echo ""
+echo "--- Phase 3: Commands ---"
+claude -p "Phase 3 of the Deno todo app: Add commands.ts with handler functions for add, list, complete, and delete. Add main.ts that parses CLI args and dispatches to the right command handler. Commit your changes." \
+    --allowedTools "$ALLOWED"
+
+echo ""
+echo "--- Phase 4: Persistence ---"
+claude -p "Phase 4 of the Deno todo app: Add persistence.ts that saves and loads todos from a JSON file. Wire it into main.ts so todos persist between runs. Add todos.json to .gitignore. Commit your changes." \
+    --allowedTools "$ALLOWED"
+
+echo ""
+echo "--- Phase 5: Delete and filter ---"
+claude -p "Phase 5 of the Deno todo app: Add a filter command that lists todos filtered by --done or --pending flags. Make sure delete works end-to-end with persistence. Commit your changes." \
+    --allowedTools "$ALLOWED"
+
+echo ""
+echo "--- Phase 6: Tests ---"
+claude -p "Phase 6 of the Deno todo app: Add store_test.ts and cli_test.ts with comprehensive tests for the store and CLI parser. Run them with 'deno test' to make sure they pass. Commit your changes." \
+    --allowedTools "$ALLOWED"
 
 # 3. Show session summary
 echo ""
