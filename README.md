@@ -1,6 +1,6 @@
 # git-cognition
 
-A single Go binary that captures Claude Code session context — tool calls, reasoning, decisions — and stores it in git notes. Query any line of code to see *why* it was written, with the surrounding code and Claude's verbatim explanation.
+A single Go binary that captures Claude Code session context — tool calls, reasoning, decisions — and stores it in git notes. Query any line of code to see *why* it was written, with the surrounding code and Claude's verbatim explanation rendered with colors and markdown styling.
 
 No model calls. No network. No database. Pure git.
 
@@ -96,7 +96,9 @@ a1b2c3d  src/auth/signup.go:42  ·  claude-opus-4-6  ·  2026-03-29
    I reused that rather than adding a new dependency."
 ```
 
-The target line is highlighted with `→` and surrounded by 3 lines of context. The quote is the most relevant excerpt from Claude's final message, selected by BM25 ranking.
+The target line is highlighted with `→` and surrounded by 3 lines of context. The quote is the most relevant excerpt from Claude's final message, selected by BM25 ranking. Markdown in the reasoning (`**bold**`, `` `code` ``, bullets) is rendered as styled terminal text.
+
+When no strong excerpt match exists (e.g. a multi-commit session with a generic summary), `git why` shows the task prompt instead of a misleading excerpt.
 
 If there's no session data for a commit, `git why` falls back to plain `git blame` output silently.
 
@@ -129,6 +131,8 @@ action log:
   Read  src/auth/signup.go
   Edit  src/auth/signup.go
   Bash  go test ./...  →  ok  0.51s
+
+  git why app.js:12 --full  ·  git session show abc123
 ```
 
 **Full** also shows the file contents Claude was reading when it made decisions.
@@ -154,7 +158,7 @@ Full detail view of a session:
 git session show abc123
 ```
 
-Shows task prompt, commits, Claude's full reasoning, and the complete action log with sequence numbers.
+Shows task prompt, commits, Claude's full reasoning (with markdown rendered), and the complete action log with sequence numbers.
 
 ### `git session grep <query>`
 
@@ -167,7 +171,7 @@ git session grep "auth" --scope all        # search everything
 git session grep "rate limit" --since 14d  # with time filter
 ```
 
-Matching terms are highlighted in the output.
+Matching terms are highlighted in the output. Markdown in matched lines is rendered.
 
 ### `git session stat`
 
@@ -225,16 +229,31 @@ Claude Code session
 
 Hooks always exit 0. Errors go to stderr. Orphaned session files older than 24 hours are cleaned up automatically.
 
-## Colored output
+## Output styling
 
 Output uses semantic colors following git conventions:
 - **Yellow** — commit SHAs, session IDs
-- **Cyan** — model names, tool names
+- **Cyan** — model names, tool names, inline `code`
 - **Green** — Claude's reasoning quotes
-- **Bold** — section headers, target line, file paths
-- **Dim** — dates, separators, hints
+- **Bold** — section headers, target line, file paths, `**emphasis**`
+- **Dim** — dates, separators, hints, bullet markers
+
+Markdown in Claude's reasoning is rendered inline:
+- `**bold text**` renders as bold
+- `` `code references` `` render as cyan
+- `- bullet items` render with styled `·` markers
 
 Colors auto-disable when output is piped. Override with `--no-color` or the `NO_COLOR` environment variable.
+
+## Best practices for rich reasoning
+
+Each Claude Code session produces one `final_message`. For the best `git why` experience:
+
+- **One task per session** — each session gets its own reasoning, so `git why` can show specific context for each commit
+- **Interactive mode** — Claude's final message in interactive sessions tends to be more detailed than `claude -p` summaries
+- **Separate sessions for separate concerns** — if building a feature in phases, use separate sessions so each phase gets its own reasoning
+
+A single session with many commits will share one final message across all commits. `git why` will show the task prompt as fallback when no specific excerpt matches.
 
 ## Configuration
 
@@ -273,6 +292,14 @@ git session show <session-id>      # full detail
 git why hello.go:3                 # code snippet + reasoning
 git session grep "hello"           # search across sessions
 ```
+
+Or run the automated e2e test (requires Claude Code):
+
+```bash
+./scripts/e2e-test.sh
+```
+
+This creates a temp directory, runs 6 separate Claude sessions to build a Deno todo app in phases, then queries every file with `git why` to verify per-file reasoning.
 
 ## Command reference
 
