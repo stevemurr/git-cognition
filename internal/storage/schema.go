@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const SchemaVersion = "5.0"
+const SchemaVersion = "6.0"
 
 type Session struct {
 	SchemaVersion string    `json:"schema_version"`
@@ -45,8 +45,22 @@ type ToolCall struct {
 }
 
 type Reasoning struct {
-	FinalMessage string `json:"final_message"`
-	Source       string `json:"source"`
+	FinalMessage string        `json:"final_message"`
+	Source       string        `json:"source"`
+	LLM          *LLMReasoning `json:"llm,omitempty"`
+}
+
+type LLMReasoning struct {
+	Summary            string           `json:"summary"`
+	FileAnnotations    []FileAnnotation `json:"file_annotations"`
+	RejectedApproaches []string         `json:"rejected_approaches"`
+	KeyDecisions       []string         `json:"key_decisions"`
+}
+
+type FileAnnotation struct {
+	Path string `json:"path"`
+	What string `json:"what"`
+	Why  string `json:"why"`
 }
 
 type Metrics struct {

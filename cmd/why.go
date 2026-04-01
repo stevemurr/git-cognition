@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stevemurr/git-cognition/internal/output"
-	"github.com/stevemurr/git-cognition/internal/retrieval"
 	"github.com/stevemurr/git-cognition/internal/storage"
 )
 
@@ -19,6 +18,7 @@ const defaultContext = 3 // lines above and below target
 var (
 	whyVerbose bool
 	whyFull    bool
+	whyRich    bool
 )
 
 var whyCmd = &cobra.Command{
@@ -32,6 +32,7 @@ var whyCmd = &cobra.Command{
 func init() {
 	whyCmd.Flags().BoolVar(&whyVerbose, "verbose", false, "show full reasoning and action log")
 	whyCmd.Flags().BoolVar(&whyFull, "full", false, "show everything including file contents read")
+	whyCmd.Flags().BoolVar(&whyRich, "rich", false, "two-pane layout: code on left, context on right")
 	rootCmd.AddCommand(whyCmd)
 }
 
@@ -69,27 +70,46 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load session %s: %w", sessionID, err)
 	}
 
-	// BM25 excerpt — only use if it's a quality match
-	query := retrieval.QueryFromFilePath(file)
-	excerpt := retrieval.BestExcerpt(query, session.Reasoning.FinalMessage)
+	// Excerpt from LLM: file annotation → summary → task prompt fallback
+	var excerpt string
+	if llm := session.Reasoning.LLM; llm != nil {
+		if ann := findFileAnnotation(llm.FileAnnotations, file); ann != nil {
+			excerpt = ann.What + "\n" + ann.Why
+		} else {
+			excerpt = llm.Summary
+		}
+	} else if session.Task.Prompt != "" {
+		excerpt = session.Task.Prompt
+	}
 
 	// Read code snippet around the target line
-	codeLines, startLine := readCodeContext(file, line, defaultContext)
+	ctx := defaultContext
+	if whyRich {
+		ctx = 8 // more context for the two-pane layout
+	}
+	codeLines, startLine := readCodeContext(file, line, ctx)
 
 	data := output.WhyData{
-		CommitSHA:  sha,
-		FileLine:   fileLine,
-		Session:    session,
-		Excerpt:    excerpt,
-		CodeLines:  codeLines,
-		TargetLine: line,
-		StartLine:  startLine,
+		CommitSHA:    sha,
+		FileLine:     fileLine,
+		Session:      session,
+		Excerpt:      excerpt,
+		LLMReasoning: session.Reasoning.LLM,
+		CodeLines:    codeLines,
+		TargetLine:   line,
+		StartLine:    startLine,
 	}
 
 	w := os.Stdout
 	switch {
 	case jsonOutput:
 		output.RenderWhyJSON(w, data)
+	case whyRich:
+		if !output.IsTTY() {
+			output.RenderWhyDefault(w, data)
+		} else {
+			output.RenderWhyRich(w, data, output.TermWidth())
+		}
 	case whyFull:
 		output.RenderWhyFull(w, data)
 	case whyVerbose:
@@ -127,6 +147,16 @@ func readCodeContext(file string, targetLine, context int) ([]string, int) {
 		lines = append(lines, scanner.Text())
 	}
 	return lines, startLine
+}
+
+// findFileAnnotation matches a file path against LLM annotations by suffix.
+func findFileAnnotation(annotations []storage.FileAnnotation, file string) *storage.FileAnnotation {
+	for i := range annotations {
+		if annotations[i].Path == file || strings.HasSuffix(file, "/"+annotations[i].Path) || strings.HasSuffix(annotations[i].Path, "/"+file) {
+			return &annotations[i]
+		}
+	}
+	return nil
 }
 
 func gitBlame(file string, line int) (string, error) {

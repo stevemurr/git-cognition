@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stevemurr/git-cognition/internal/capture"
+	"github.com/stevemurr/git-cognition/internal/config"
+	"github.com/stevemurr/git-cognition/internal/llm"
 	"github.com/stevemurr/git-cognition/internal/storage"
 )
 
@@ -124,6 +127,24 @@ func RunStop(stdin io.Reader) error {
 
 	if session.Commits == nil {
 		session.Commits = []storage.Commit{}
+	}
+
+	// Attempt LLM reasoning extraction
+	cfg, _ := config.Load(gitDir)
+	if cfg.LLM.Enabled && cfg.LLM.Endpoint != "" {
+		apiKey := cfg.LLM.APIKey
+		if envKey := os.Getenv("GC_LLM_API_KEY"); envKey != "" {
+			apiKey = envKey
+		}
+		client := llm.NewClient(cfg.LLM.Endpoint, apiKey, cfg.LLM.Model,
+			time.Duration(cfg.LLM.TimeoutS)*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(cfg.LLM.TimeoutS)*time.Second)
+		defer cancel()
+		if extracted, err := llm.ExtractReasoning(ctx, client, session); err == nil {
+			session.Reasoning.LLM = extracted
+			session.Reasoning.Source = "llm_extracted"
+		}
 	}
 
 	// Write to git notes
