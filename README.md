@@ -4,6 +4,8 @@ A single Go binary that captures Claude Code session context — tool calls, rea
 
 Optionally uses a local LLM to extract structured reasoning (per-file annotations, key decisions, rejected approaches) at session end via any OpenAI-compatible endpoint.
 
+![git why --rich output](example.png)
+
 ## Install
 
 ```bash
