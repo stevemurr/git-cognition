@@ -64,7 +64,13 @@ func TestSessionRoundTrip(t *testing.T) {
 }
 
 func TestThinkingBlocksSerializesAsEmptyArray(t *testing.T) {
-	s := NewSession("test")
+	s := &Session{
+		SchemaVersion:  SchemaVersion,
+		SessionID:      "test",
+		Commits:        []Commit{},
+		ToolCalls:      []ToolCall{},
+		ThinkingBlocks: []json.RawMessage{},
+	}
 	data, err := MarshalSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -80,15 +86,23 @@ func TestThinkingBlocksSerializesAsEmptyArray(t *testing.T) {
 	}
 }
 
-func TestNewSessionDefaults(t *testing.T) {
-	s := NewSession("xyz")
-	if s.SchemaVersion != SchemaVersion {
-		t.Errorf("schema_version = %q, want %q", s.SchemaVersion, SchemaVersion)
+func TestParseToolCall(t *testing.T) {
+	tests := []struct {
+		name string
+		tc   ToolCall
+		want ToolCallInfo
+	}{
+		{"read", ToolCall{Tool: "Read", Input: json.RawMessage(`{"file_path":"foo.go"}`)}, ToolCallInfo{Tool: "Read", FilePath: "foo.go"}},
+		{"bash", ToolCall{Tool: "Bash", Input: json.RawMessage(`{"command":"go test"}`)}, ToolCallInfo{Tool: "Bash", Command: "go test"}},
+		{"glob", ToolCall{Tool: "Glob", Input: json.RawMessage(`{"pattern":"*.go"}`)}, ToolCallInfo{Tool: "Glob", Pattern: "*.go"}},
+		{"unknown", ToolCall{Tool: "Agent", Input: json.RawMessage(`{}`)}, ToolCallInfo{Tool: "Agent"}},
 	}
-	if s.Commits == nil || len(s.Commits) != 0 {
-		t.Error("commits should be non-nil empty slice")
-	}
-	if s.ToolCalls == nil || len(s.ToolCalls) != 0 {
-		t.Error("tool_calls should be non-nil empty slice")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseToolCall(tt.tc)
+			if got != tt.want {
+				t.Errorf("ParseToolCall() = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }

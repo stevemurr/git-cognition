@@ -29,16 +29,16 @@ type Event struct {
 	Timestamp string          `json:"timestamp,omitempty"`
 }
 
-func SessionDir(gitDir string) string {
+func sessionDir(gitDir string) string {
 	return filepath.Join(gitDir, "gc-sessions")
 }
 
 func SessionFilePath(gitDir, sessionID string) string {
-	return filepath.Join(SessionDir(gitDir), sessionID+".ndjson")
+	return filepath.Join(sessionDir(gitDir), sessionID+".ndjson")
 }
 
 func AppendEvent(gitDir, sessionID string, event *Event) error {
-	dir := SessionDir(gitDir)
+	dir := sessionDir(gitDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("capture: create session dir: %w", err)
 	}
@@ -89,7 +89,7 @@ func Remove(gitDir, sessionID string) error {
 }
 
 func ListOrphanedSessions(gitDir string, olderThan time.Duration) ([]string, error) {
-	dir := SessionDir(gitDir)
+	dir := sessionDir(gitDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {

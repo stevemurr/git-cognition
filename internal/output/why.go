@@ -52,34 +52,37 @@ func renderCodeSnippet(w io.Writer, d WhyData) {
 	fmt.Fprintln(w)
 }
 
-func RenderWhyDefault(w io.Writer, d WhyData) {
+func renderWhyHeader(w io.Writer, d WhyData) {
 	fmt.Fprintf(w, "%s  %s  %s  %s  %s  %s\n",
 		SHA(d.CommitSHA), FilePath(d.FileLine),
 		Separator("·"), Model(d.Session.Agent.Model),
 		Separator("·"), DateDim(d.Session.CreatedAt.Format("2006-01-02")))
+}
+
+func renderQuotedMessage(w io.Writer, text string) {
+	for _, line := range strings.Split(text, "\n") {
+		fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
+	}
+}
+
+func RenderWhyDefault(w io.Writer, d WhyData) {
+	renderWhyHeader(w, d)
 	fmt.Fprintln(w)
 
 	renderCodeSnippet(w, d)
 
 	if d.Excerpt != "" {
-		for _, line := range strings.Split(d.Excerpt, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
-		}
+		renderQuotedMessage(w, d.Excerpt)
 	} else if d.Session.Task.Prompt != "" {
 		fmt.Fprintf(w, "  %s %s\n", Label("task:"), d.Session.Task.Prompt)
-	} else if d.Session.Reasoning.FinalMessage != "" {
-		lines := strings.SplitN(d.Session.Reasoning.FinalMessage, "\n", 3)
-		for _, line := range lines[:min(len(lines), 2)] {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
-		}
+	} else if msg := d.Session.Reasoning.FinalMessage; msg != "" {
+		lines := strings.SplitN(msg, "\n", 3)
+		renderQuotedMessage(w, strings.Join(lines[:min(len(lines), 2)], "\n"))
 	}
 }
 
 func RenderWhyVerbose(w io.Writer, d WhyData) {
-	fmt.Fprintf(w, "%s  %s  %s  %s  %s  %s\n",
-		SHA(d.CommitSHA), FilePath(d.FileLine),
-		Separator("·"), Model(d.Session.Agent.Model),
-		Separator("·"), DateDim(d.Session.CreatedAt.Format("2006-01-02")))
+	renderWhyHeader(w, d)
 	fmt.Fprintf(w, "%s %s  %s  %s %s\n",
 		Label("session:"), SHA(d.Session.SessionID),
 		Separator("·"),
@@ -112,9 +115,7 @@ func RenderWhyVerbose(w io.Writer, d WhyData) {
 
 	if d.Session.Reasoning.FinalMessage != "" {
 		fmt.Fprintln(w, Header("claude's message:"))
-		for _, line := range strings.Split(d.Session.Reasoning.FinalMessage, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
-		}
+		renderQuotedMessage(w, d.Session.Reasoning.FinalMessage)
 		fmt.Fprintln(w)
 	}
 
@@ -133,17 +134,11 @@ func RenderWhyFull(w io.Writer, d WhyData) {
 
 	fmt.Fprintln(w, Header("files read during session:"))
 	for _, tc := range d.Session.ToolCalls {
-		if tc.Tool != "Read" {
+		info := storage.ParseToolCall(tc)
+		if info.Tool != "Read" || info.FilePath == "" {
 			continue
 		}
-		var input struct {
-			FilePath string `json:"file_path"`
-		}
-		json.Unmarshal(tc.Input, &input)
-		if input.FilePath == "" {
-			continue
-		}
-		fmt.Fprintf(w, "\n  %s\n", FilePath(input.FilePath+":"))
+		fmt.Fprintf(w, "\n  %s\n", FilePath(info.FilePath+":"))
 		for _, line := range strings.Split(tc.OutputTruncated, "\n") {
 			fmt.Fprintf(w, "    %s\n", line)
 		}
@@ -336,72 +331,44 @@ func RenderWhyRich(w io.Writer, d WhyData, termWidth int) {
 	fmt.Fprintln(w, joined)
 }
 
-// formatToolCallRich returns a colorized short description for tool calls
-// in the rich two-pane view.
+// formatToolCallRich returns a colorized short description for the rich two-pane view.
 func formatToolCallRich(tc storage.ToolCall) string {
-	var input map[string]interface{}
-	json.Unmarshal(tc.Input, &input)
+	info := storage.ParseToolCall(tc)
+	tool := richToolName.Render(fmt.Sprintf("%-5s", info.Tool))
 
-	tool := richToolName.Render(fmt.Sprintf("%-5s", tc.Tool))
-
-	switch tc.Tool {
-	case "Read":
-		if fp, ok := input["file_path"].(string); ok {
-			return fmt.Sprintf("%s %s", tool, richFilePath.Render(fp))
+	switch {
+	case info.FilePath != "":
+		return fmt.Sprintf("%s %s", tool, richFilePath.Render(info.FilePath))
+	case info.Command != "":
+		cmd := info.Command
+		if len(cmd) > 40 {
+			cmd = cmd[:37] + "..."
 		}
-	case "Edit", "Write":
-		if fp, ok := input["file_path"].(string); ok {
-			return fmt.Sprintf("%s %s", tool, richFilePath.Render(fp))
-		}
-	case "Bash":
-		if cmd, ok := input["command"].(string); ok {
-			if len(cmd) > 40 {
-				cmd = cmd[:37] + "..."
-			}
-			return fmt.Sprintf("%s %s", tool, richBashCmd.Render(cmd))
-		}
-	case "Glob":
-		if p, ok := input["pattern"].(string); ok {
-			return fmt.Sprintf("%s %s", tool, richFilePath.Render(p))
-		}
-	case "Grep":
-		if p, ok := input["pattern"].(string); ok {
-			return fmt.Sprintf("%s %s", tool, richBashCmd.Render(p))
-		}
+		return fmt.Sprintf("%s %s", tool, richBashCmd.Render(cmd))
+	case info.Pattern != "":
+		return fmt.Sprintf("%s %s", tool, richFilePath.Render(info.Pattern))
 	}
-
 	return fmt.Sprintf("%s %s", tool, string(tc.Input))
 }
 
+// formatToolCallShort returns a colored description for non-rich views.
 func formatToolCallShort(tc storage.ToolCall) string {
-	var input map[string]interface{}
-	json.Unmarshal(tc.Input, &input)
+	info := storage.ParseToolCall(tc)
 
-	switch tc.Tool {
-	case "Read":
-		if fp, ok := input["file_path"].(string); ok {
-			return fmt.Sprintf("%s  %s", ToolName("Read"), FilePath(fp))
+	switch {
+	case info.FilePath != "":
+		return fmt.Sprintf("%s  %s", ToolName(info.Tool), FilePath(info.FilePath))
+	case info.Command != "":
+		out := tc.OutputTruncated
+		if len(out) > 60 {
+			out = out[:60] + "..."
 		}
-	case "Edit", "Write":
-		if fp, ok := input["file_path"].(string); ok {
-			desc := ""
-			if d, ok := input["description"].(string); ok {
-				desc = fmt.Sprintf(" — %q", d)
-			}
-			return fmt.Sprintf("%s  %s%s", ToolName(tc.Tool), FilePath(fp), desc)
+		if out != "" {
+			return fmt.Sprintf("%s  %s  %s  %s", ToolName("Bash"), info.Command, Separator("→"), DateDim(out))
 		}
-	case "Bash":
-		if cmd, ok := input["command"].(string); ok {
-			out := tc.OutputTruncated
-			if len(out) > 60 {
-				out = out[:60] + "..."
-			}
-			if out != "" {
-				return fmt.Sprintf("%s  %s  %s  %s", ToolName("Bash"), cmd, Separator("→"), DateDim(out))
-			}
-			return fmt.Sprintf("%s  %s", ToolName("Bash"), cmd)
-		}
+		return fmt.Sprintf("%s  %s", ToolName("Bash"), info.Command)
+	case info.Pattern != "":
+		return fmt.Sprintf("%s  %s", ToolName(info.Tool), info.Pattern)
 	}
-
-	return fmt.Sprintf("%s  %v", ToolName(tc.Tool), string(tc.Input))
+	return fmt.Sprintf("%s  %v", ToolName(info.Tool), string(tc.Input))
 }

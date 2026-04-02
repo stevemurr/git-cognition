@@ -68,14 +68,39 @@ type Metrics struct {
 	DurationSeconds int `json:"duration_seconds"`
 }
 
-func NewSession(sessionID string) *Session {
-	return &Session{
-		SchemaVersion:  SchemaVersion,
-		SessionID:      sessionID,
-		Commits:        []Commit{},
-		ToolCalls:      []ToolCall{},
-		ThinkingBlocks: []json.RawMessage{},
+// ToolCallInfo holds the parsed essentials of a tool call input.
+type ToolCallInfo struct {
+	Tool     string // Read, Edit, Write, Bash, Glob, Grep, etc.
+	FilePath string // for Read/Edit/Write
+	Command  string // for Bash
+	Pattern  string // for Glob/Grep
+}
+
+// ParseToolCall extracts the key fields from a tool call's JSON input.
+func ParseToolCall(tc ToolCall) ToolCallInfo {
+	info := ToolCallInfo{Tool: tc.Tool}
+	var input map[string]interface{}
+	json.Unmarshal(tc.Input, &input)
+
+	switch tc.Tool {
+	case "Read", "Edit", "Write":
+		if fp, ok := input["file_path"].(string); ok {
+			info.FilePath = fp
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			info.Command = cmd
+		}
+	case "Glob":
+		if p, ok := input["pattern"].(string); ok {
+			info.Pattern = p
+		}
+	case "Grep":
+		if p, ok := input["pattern"].(string); ok {
+			info.Pattern = p
+		}
 	}
+	return info
 }
 
 func MarshalSession(s *Session) ([]byte, error) {

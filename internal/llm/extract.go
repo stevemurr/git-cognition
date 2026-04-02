@@ -137,30 +137,19 @@ func buildPrompt(session *storage.Session) string {
 }
 
 func abbreviateToolCall(tc storage.ToolCall) string {
-	var input map[string]interface{}
-	json.Unmarshal(tc.Input, &input)
+	info := storage.ParseToolCall(tc)
 
-	switch tc.Tool {
-	case "Read", "Edit", "Write":
-		if fp, ok := input["file_path"].(string); ok {
-			return fmt.Sprintf("%s %s", tc.Tool, fp)
+	switch {
+	case info.FilePath != "":
+		return fmt.Sprintf("%s %s", info.Tool, info.FilePath)
+	case info.Command != "":
+		cmd := info.Command
+		if len(cmd) > 60 {
+			cmd = cmd[:57] + "..."
 		}
-	case "Bash":
-		if cmd, ok := input["command"].(string); ok {
-			if len(cmd) > 60 {
-				cmd = cmd[:57] + "..."
-			}
-			return fmt.Sprintf("Bash: %s", cmd)
-		}
-	case "Glob":
-		if p, ok := input["pattern"].(string); ok {
-			return fmt.Sprintf("Glob %s", p)
-		}
-	case "Grep":
-		if p, ok := input["pattern"].(string); ok {
-			return fmt.Sprintf("Grep %s", p)
-		}
+		return fmt.Sprintf("Bash: %s", cmd)
+	case info.Pattern != "":
+		return fmt.Sprintf("%s %s", info.Tool, info.Pattern)
 	}
-
-	return tc.Tool
+	return info.Tool
 }

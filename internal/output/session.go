@@ -59,9 +59,7 @@ func RenderSessionShow(w io.Writer, s *storage.Session) {
 
 	if s.Reasoning.FinalMessage != "" {
 		fmt.Fprintln(w, Header("claude's reasoning:"))
-		for _, line := range strings.Split(s.Reasoning.FinalMessage, "\n") {
-			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
-		}
+		renderQuotedMessage(w, s.Reasoning.FinalMessage)
 		fmt.Fprintln(w)
 	}
 
@@ -136,7 +134,6 @@ func RenderSessionStat(w io.Writer, sessions []*storage.Session) {
 type GrepResult struct {
 	Session *storage.Session
 	Matches []string // matched lines/excerpts
-	Query   string   // the search query for highlighting
 }
 
 func RenderSessionGrep(w io.Writer, query string, results []GrepResult) {

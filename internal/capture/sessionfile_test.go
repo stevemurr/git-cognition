@@ -82,7 +82,7 @@ func TestRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(SessionDir(gitDir), sid+".ndjson")
+	path := filepath.Join(sessionDir(gitDir), sid+".ndjson")
 	if _, err := ReadEvents(gitDir, sid); err == nil {
 		t.Errorf("expected error reading removed file at %s", path)
 	}
