@@ -1,8 +1,6 @@
 # git-cognition
 
-A single Go binary that captures Claude Code session context — tool calls, reasoning, decisions — and stores it in git notes. Query any line of code to see *why* it was written, with syntax-highlighted code and structured reasoning in a two-pane terminal UI.
-
-Optionally uses a local LLM to extract structured reasoning (per-file annotations, key decisions, rejected approaches) at session end via any OpenAI-compatible endpoint.
+Capture Claude Code session context — tool calls, reasoning, decisions — and stores it in git notes. Query any line of code to see *why* it was written, with syntax-highlighted code and structured reasoning in a two-pane terminal UI.
 
 ![git why --rich output](example.png)
 
