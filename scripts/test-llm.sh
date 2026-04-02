@@ -36,11 +36,11 @@ echo ""
 # --- Test 1: Endpoint reachable ---
 echo "--- Test 1: Endpoint reachable ---"
 # Try /health (litellm), then /v1/models (vllm/openai), then bare GET
-if curl -sf --max-time 5 "$ENDPOINT/health" > /dev/null 2>&1; then
+if curl -4sf --max-time 5 "$ENDPOINT/health" > /dev/null 2>&1; then
     pass "endpoint responds (/health)"
-elif curl -sf --max-time 5 "$ENDPOINT/v1/models" > /dev/null 2>&1; then
+elif curl -4sf --max-time 5 "$ENDPOINT/v1/models" > /dev/null 2>&1; then
     pass "endpoint responds (/v1/models)"
-elif curl -sf --max-time 5 "$ENDPOINT/" > /dev/null 2>&1; then
+elif curl -4sf --max-time 5 "$ENDPOINT/" > /dev/null 2>&1; then
     pass "endpoint responds (/)"
 else
     fail "endpoint unreachable at $ENDPOINT"
@@ -53,7 +53,7 @@ fi
 
 # --- Test 2: Chat completions basic request ---
 echo "--- Test 2: Basic chat completion ---"
-BASIC_RESP=$(curl -sf --max-time 30 \
+BASIC_RESP=$(curl -4sf --max-time 30 \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $API_KEY" \
     "$ENDPOINT/v1/chat/completions" \
@@ -71,7 +71,7 @@ fi
 
 # --- Test 3: Structured output with json_schema ---
 echo "--- Test 3: Structured output (json_schema) ---"
-SCHEMA_RESP=$(curl -sf --max-time 60 \
+SCHEMA_RESP=$(curl -4sf --max-time 60 \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $API_KEY" \
     "$ENDPOINT/v1/chat/completions" \
