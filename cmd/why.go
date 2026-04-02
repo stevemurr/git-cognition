@@ -70,7 +70,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load session %s: %w", sessionID, err)
 	}
 
-	// Excerpt from LLM: file annotation → summary → task prompt fallback
+	// Excerpt: LLM annotation → LLM summary → task prompt → first line of final message
 	var excerpt string
 	if llm := session.Reasoning.LLM; llm != nil {
 		if ann := findFileAnnotation(llm.FileAnnotations, file); ann != nil {
@@ -80,6 +80,12 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		}
 	} else if session.Task.Prompt != "" {
 		excerpt = session.Task.Prompt
+	} else if msg := session.Reasoning.FinalMessage; msg != "" {
+		if idx := strings.Index(msg, "\n"); idx > 0 {
+			excerpt = msg[:idx]
+		} else {
+			excerpt = msg
+		}
 	}
 
 	// Read code snippet around the target line

@@ -1,9 +1,15 @@
 package output
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
 	"golang.org/x/term"
@@ -166,6 +172,48 @@ func truncateLines(text string, maxLines int) string {
 		return text
 	}
 	return strings.Join(lines[:maxLines], "\n") + "\n..."
+}
+
+// highlightCode syntax-highlights code lines for a given filename.
+// Returns ANSI-colored strings, one per input line. Falls back to
+// plain text if the language is unknown or highlighting fails.
+func highlightCode(filename string, lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+
+	code := strings.Join(lines, "\n")
+
+	lexer := lexers.Match(filepath.Base(filename))
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	style := styles.Get("monokai")
+	formatter := formatters.Get("terminal256")
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return lines
+	}
+
+	var buf bytes.Buffer
+	if err := formatter.Format(&buf, style, iterator); err != nil {
+		return lines
+	}
+
+	highlighted := strings.Split(buf.String(), "\n")
+	// Chroma may add a trailing newline; trim to match input length
+	if len(highlighted) > len(lines) {
+		highlighted = highlighted[:len(lines)]
+	}
+	// If chroma produced fewer lines, pad with originals
+	for len(highlighted) < len(lines) {
+		highlighted = append(highlighted, lines[len(highlighted)])
+	}
+
+	return highlighted
 }
 
 // verticalDivider returns a string of vertical bar characters for the given height.

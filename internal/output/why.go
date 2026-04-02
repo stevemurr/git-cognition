@@ -67,6 +67,11 @@ func RenderWhyDefault(w io.Writer, d WhyData) {
 		}
 	} else if d.Session.Task.Prompt != "" {
 		fmt.Fprintf(w, "  %s %s\n", Label("task:"), d.Session.Task.Prompt)
+	} else if d.Session.Reasoning.FinalMessage != "" {
+		lines := strings.SplitN(d.Session.Reasoning.FinalMessage, "\n", 3)
+		for _, line := range lines[:min(len(lines), 2)] {
+			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
+		}
 	}
 }
 
@@ -103,6 +108,14 @@ func RenderWhyVerbose(w io.Writer, d WhyData) {
 			}
 			fmt.Fprintln(w)
 		}
+	}
+
+	if d.Session.Reasoning.FinalMessage != "" {
+		fmt.Fprintln(w, Header("claude's message:"))
+		for _, line := range strings.Split(d.Session.Reasoning.FinalMessage, "\n") {
+			fmt.Fprintf(w, "  %s\n", Quote("\""+RenderMarkdown(line)))
+		}
+		fmt.Fprintln(w)
 	}
 
 	fmt.Fprintln(w, Header("action log:"))
@@ -177,19 +190,26 @@ func RenderWhyRich(w io.Writer, d WhyData, termWidth int) {
 	left.WriteByte('\n')
 
 	if len(d.CodeLines) > 0 {
+		// Extract filename for syntax highlighting
+		fileName := d.FileLine
+		if idx := strings.LastIndex(fileName, ":"); idx > 0 {
+			fileName = fileName[:idx]
+		}
+		highlighted := highlightCode(fileName, d.CodeLines)
+
 		maxLineNo := d.StartLine + len(d.CodeLines) - 1
 		numW := len(fmt.Sprintf("%d", maxLineNo))
-		for i, code := range d.CodeLines {
+		for i, code := range highlighted {
 			lineNo := d.StartLine + i
 			if lineNo == d.TargetLine {
 				left.WriteString(fmt.Sprintf("  %s %s %s\n",
 					richTargetNum.Render(fmt.Sprintf("%*d", numW, lineNo)),
 					richArrow.Render("→"),
-					richTargetLine.Render(code)))
+					code))
 			} else {
 				left.WriteString(fmt.Sprintf("  %s   %s\n",
 					richLineNum.Render(fmt.Sprintf("%*d", numW, lineNo)),
-					richCodeDim.Render(code)))
+					code))
 			}
 		}
 	}
@@ -287,6 +307,18 @@ func RenderWhyRich(w io.Writer, d WhyData, termWidth int) {
 				}
 			}
 		}
+	}
+
+	// Claude's message — always shown when available
+	if d.Session.Reasoning.FinalMessage != "" {
+		right.WriteString(richHeader.Render("Claude's Message"))
+		right.WriteByte('\n')
+		msg := wrapText(d.Session.Reasoning.FinalMessage, innerRight)
+		msg = truncateLines(msg, 10)
+		for _, line := range strings.Split(msg, "\n") {
+			right.WriteString(fmt.Sprintf("  %s\n", richReasonText.Render(RenderMarkdown(line))))
+		}
+		right.WriteByte('\n')
 	}
 
 	rightPane := rightPaneStyle.Width(rightWidth).Render(right.String())
